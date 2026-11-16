@@ -2793,7 +2793,8 @@ class abogen(QWidget):
                     else None
                 )
         elif self.selected_voice:
-            lang_to_cache = self.selected_voice[0]
+            # Must match the lang passed to VoicePreviewThread in preview_voice()
+            lang_to_cache = language_for_voice_id(self.selected_voice)
             voice_to_cache = self.selected_voice
         else:  # No voice or profile selected
             return None
@@ -2953,8 +2954,13 @@ class abogen(QWidget):
             temp_wav = self.preview_thread.temp_wav
         elif from_cache:  # This case is now handled before calling _play_preview_audio
             cached_path = self._get_preview_cache_path()
+            thread_wav = getattr(
+                getattr(self, "preview_thread", None), "temp_wav", None
+            )
             if cached_path and os.path.exists(cached_path):
                 temp_wav = cached_path
+            elif thread_wav and os.path.exists(thread_wav):
+                temp_wav = thread_wav
             else:  # Should not happen if cache check was done
                 self._show_error_message_box(
                     "Preview Error",
