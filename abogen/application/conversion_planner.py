@@ -113,6 +113,7 @@ def _extract_source_text(request: ConversionRequest) -> Optional[str]:
             ws.replace_caps,
             ws.replace_numerals,
             ws.fix_punctuation,
+            language=getattr(request, "language", None),
         )
 
     return text

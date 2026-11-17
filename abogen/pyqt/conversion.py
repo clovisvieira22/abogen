@@ -533,6 +533,7 @@ class ConversionThread(QThread):
                     replace_caps,
                     replace_nums,
                     fix_punct,
+                    language=getattr(self, "lang_code", None),
                 )
 
             # --- Compile normalization rules (heteronym + pronunciation) ---

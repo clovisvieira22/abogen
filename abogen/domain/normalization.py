@@ -12,7 +12,7 @@ resources so they can be created once and passed as a single object.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
 from abogen.domain.enums import Language
@@ -29,6 +29,26 @@ from abogen.normalization_settings import (
 _BASE_APOSTROPHE_CONFIG = ApostropheConfig()
 
 
+def number_lang_for(language: Any) -> str:
+    """Map a Language (or code like "pt-BR") to a num2words language code.
+
+    Falls back to English when num2words has no converter for the language.
+    """
+    if language is None:
+        return "en"
+    code = str(getattr(language, "value", language) or "").strip()
+    if not code:
+        return "en"
+    try:
+        from num2words import CONVERTER_CLASSES
+    except ImportError:
+        return "en"
+    for candidate in (code.replace("-", "_"), code.split("-")[0].lower()):
+        if candidate in CONVERTER_CLASSES:
+            return candidate
+    return "en"
+
+
 @dataclass
 class TTSContext:
     """Bundles pre-compiled normalization resources for TTS processing.
@@ -42,6 +62,7 @@ class TTSContext:
     heteronym_rules: Optional[List[Dict[str, Any]]] = None
     normalization_overrides: Optional[Mapping[str, Any]] = None
     usage_counter: Dict[str, int] = field(default_factory=dict)
+    number_lang: str = "en"  # num2words language for spelling out numbers
 
     def normalize(self, text: str) -> str:
         """Shorthand: normalize text using this context's compiled rules."""
@@ -51,6 +72,7 @@ class TTSContext:
             pronunciation_rules=self.pronunciation_rules,
             normalization_overrides=self.normalization_overrides,
             usage_counter=self.usage_counter,
+            number_lang=self.number_lang,
         )
 
 
@@ -74,6 +96,7 @@ def prepare_text_for_tts(
     pronunciation_rules: Optional[List[Dict[str, Any]]] = None,
     normalization_overrides: Optional[Mapping[str, Any]] = None,
     usage_counter: Optional[Dict[str, int]] = None,
+    number_lang: Optional[str] = None,
 ) -> str:
     """Apply the full text normalization pipeline before TTS synthesis.
 
@@ -122,6 +145,8 @@ def prepare_text_for_tts(
     if normalization_overrides:
         runtime_settings = _apply_overrides(runtime_settings, normalization_overrides)
     apostrophe_config = build_apostrophe_config(settings=runtime_settings, base=_BASE_APOSTROPHE_CONFIG)
+    if number_lang:
+        apostrophe_config = replace(apostrophe_config, number_lang=number_lang)
 
     return _normalize_for_pipeline(result, config=apostrophe_config, settings=runtime_settings)
 
@@ -242,4 +267,5 @@ def build_tts_context(
         heteronym_rules=heteronym_rules,
         normalization_overrides=pronunciation.normalization_overrides,
         usage_counter=usage_counter if usage_counter is not None else {},
+        number_lang=number_lang_for(language),
     )
