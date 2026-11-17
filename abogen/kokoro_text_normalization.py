@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from decimal import Decimal
 import unicodedata
 import os
 import locale
@@ -357,10 +358,35 @@ _DIGIT_WORDS = (
 )
 
 
+# num2words prefixes for languages that write 12.500,75 (dot = thousands,
+# comma = decimal), as opposed to English 12,500.75.
+_COMMA_DECIMAL_LANGS = {
+    "pt", "es", "fr", "it", "de", "nl", "ru", "pl", "cs", "ro", "tr", "da",
+    "fi", "hu", "sv", "no", "id", "sk", "sl", "sr", "uk", "lt", "lv", "ca",
+    "be", "az", "kz", "is",
+}
+
+
+def _is_english(language: str) -> bool:
+    return (language or "en").lower().startswith("en")
+
+
+def _uses_comma_decimal(language: str) -> bool:
+    return (language or "").lower().split("_")[0] in _COMMA_DECIMAL_LANGS
+
+
 def _int_to_words(value: int, language: str) -> Optional[str]:
     """Convert integer to spelled-out words using configured language."""
     if num2words is None:
         return None
+
+    if not _is_english(language):
+        # Let num2words handle sign and wording natively; drop the commas some
+        # locales insert (pt_BR: "mil, novecentos...") so TTS doesn't pause.
+        try:
+            return num2words(value, lang=language).replace(",", "")
+        except Exception:  # pragma: no cover - unsupported locale
+            return None
 
     try:
         words = num2words(abs(value), lang=language)
@@ -1667,6 +1693,11 @@ def normalize_apostrophes(
     return normalized_text, results
 
 
+_LOCAL_NUMBER_RE = re.compile(
+    r"(?<![\w.,])-?(?:\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+,\d+)(?![\w]|[.,]\d)"
+)
+
+
 def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
     if not text:
         return text
@@ -1674,6 +1705,9 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
     language = (cfg.number_lang or "en").strip() or "en"
 
     def _year_mode() -> str:
+        if not _is_english(language):
+            # "nineteen hundred seventy-three" style is English-only.
+            return "off"
         mode = (cfg.year_pronunciation_mode or "").strip().lower()
         if mode in {"", "none", "off", "disabled"}:
             return "off"
@@ -1847,6 +1881,14 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
         if integer_value is None:
             return token
 
+        if not _is_english(language) and num2words is not None:
+            try:
+                return num2words(
+                    Decimal(core.replace(",", "")), lang=language
+                ).replace(",", "")
+            except Exception:
+                pass
+
         trimmed_fraction = fraction_part.rstrip("0")
         integer_words = _int_to_words(integer_value, language)
 
@@ -2012,6 +2054,22 @@ def _normalize_grouped_numbers(text: str, cfg: ApostropheConfig) -> str:
 
     if cfg.convert_currency:
         normalized = _CURRENCY_RE.sub(_replace_currency, normalized)
+
+    if cfg.convert_numbers and _uses_comma_decimal(language) and num2words is not None:
+        # 12.500 / 1.234,56 / 3,5 written the local way.
+        def _replace_local(match: re.Match[str]) -> str:
+            token = match.group(0)
+            try:
+                value = Decimal(token.replace(".", "").replace(",", "."))
+                if value == value.to_integral_value():
+                    words = num2words(int(value), lang=language)
+                else:
+                    words = num2words(value, lang=language)
+                return words.replace(",", "")
+            except Exception:
+                return token
+
+        normalized = _LOCAL_NUMBER_RE.sub(_replace_local, normalized)
 
     if cfg.convert_numbers:
         normalized = _NUMBER_RANGE_RE.sub(

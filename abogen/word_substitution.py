@@ -27,6 +27,7 @@ def apply_word_substitutions(
     replace_all_caps=False,
     replace_numerals=False,
     fix_nonstandard_punctuation=False,
+    language=None,
 ):
     """
     Apply word substitutions to text while preserving markers.
@@ -38,6 +39,7 @@ def apply_word_substitutions(
         replace_all_caps: Convert ALL CAPS words to lowercase
         replace_numerals: Convert numbers to words
         fix_nonstandard_punctuation: Fix curly quotes, em/en dashes, etc.
+        language: Language (or code like "pt-BR") used to spell out numbers
 
     Returns:
         Modified text
@@ -74,7 +76,7 @@ def apply_word_substitutions(
 
             # Apply numeral conversion
             if replace_numerals:
-                processed_text = convert_numerals_to_words(processed_text)
+                processed_text = convert_numerals_to_words(processed_text, language)
 
             processed_segments.append(processed_text)
 
@@ -187,16 +189,20 @@ def convert_all_caps_to_lowercase(text):
     return pattern.sub(replace_caps, text)
 
 
-def convert_numerals_to_words(text):
+def convert_numerals_to_words(text, language=None):
     """
     Convert numerals to words using num2words library.
 
     Args:
         text: Input text
+        language: Language (or code like "pt-BR"); defaults to English
 
     Returns:
         Text with numerals converted to words
     """
+    from abogen.domain.normalization import number_lang_for
+
+    lang = number_lang_for(language)
     try:
         from num2words import num2words
     except ImportError:
@@ -206,8 +212,8 @@ def convert_numerals_to_words(text):
     def replace_number(match):
         try:
             number = int(match.group(0))
-            # Convert to words in English
-            return num2words(number)
+            words = num2words(number, lang=lang)
+            return words if lang == "en" else words.replace(",", "")
         except Exception:
             # If conversion fails, return original
             return match.group(0)
